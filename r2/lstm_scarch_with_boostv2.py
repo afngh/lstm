@@ -120,7 +120,7 @@ class MyLSTM(nn.Module):
             confidence = torch.sigmoid(self.confidence_layer(combined))
 
             # boost = self.boost_factor(h)
-            boost = torch.tanh(self.boost_factor(h))
+            boost = torch.tanh(self.boost_factor(x[t]))
 
 
             # h = h + (1 - confidence) * boost
@@ -140,11 +140,11 @@ ann_layer = nn.Linear(100, len(vocab)).to(device)
 # ann_layer = nn.Linear(100, len(words)).to(device)
 
 loss_fn = nn.CrossEntropyLoss()
-optimizer = optim.Adam(list(model.parameters())+list(ann_layer.parameters()), lr=0.01)
+optimizer = optim.Adam(list(model.parameters())+list(ann_layer.parameters()), lr=0.001)
 
 scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=100, eta_min=1e-5)
 
-data_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(X,y), batch_size=10, drop_last=True,shuffle=True)
+data_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(X,y), batch_size=32, drop_last=True,shuffle=True)
 
 for epoch in track(range(50), description="Training Data: "):
   epoch_loss = None
