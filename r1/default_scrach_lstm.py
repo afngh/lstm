@@ -47,6 +47,14 @@ for i in range(len(words)-seq):
 X = torch.tensor(X)
 y = torch.tensor(y)
 
+perm = torch.randperm(len(X))
+X, y = X[perm], y[perm]
+
+split_idx = int(len(X) * 0.8)
+
+X_train, y_train = X[:split_idx], y[:split_idx]
+X_val,   y_val   = X[split_idx:], y[split_idx:]
+
 class MyLSTM(nn.Module):
     def __init__(self, input_size, hidden_size):
         super().__init__()
@@ -140,30 +148,56 @@ optimizer = optim.Adam(list(model.parameters())+list(ann_layer.parameters()), lr
 
 scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=100, eta_min=1e-5)
 
-data_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(X,y), batch_size=32, drop_last=True,shuffle=True)
+# data_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(X,y), batch_size=32, drop_last=True,shuffle=True)
+
+from torch.utils.data import TensorDataset, DataLoader
+
+train_dataset = TensorDataset(X_train, y_train)
+val_dataset   = TensorDataset(X_val, y_val)
+
+train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
+val_loader   = DataLoader(val_dataset,   batch_size=32, shuffle=False)
+
+train_losses = []
+val_losses = []
 
 for epoch in track(range(50), description="Training Data: "):
+  model.train()
   epoch_loss = None
-  for X_train, y_true in data_loader:
-    X_train, y_true = X_train.to(device), y_true.to(device)
+  for x_batch, y_batch in train_loader:
+    x_batch, y_batch = x_batch.to(device), y_batch.to(device)
 
-    # In PyTorch, .to() on tensors is NOT in-place.
-    # It must be assigned: embeddings = embeddings.to(device)
-    embeddings = embedding(X_train).to(device)
-
-    # Permute to (seq_len, batch, feature) for MyLSTM
+    embeddings = embedding(x_batch).to(device)
     output = model.forward(embeddings.permute(1, 0, 2))
 
     y_pred = ann_layer(output[-1])
-    loss = loss_fn(y_pred, y_true.squeeze())
+    loss = loss_fn(y_pred, y_batch.squeeze())
     epoch_loss = loss.item()
     optimizer.zero_grad()
     loss.backward()
 
-    total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
     optimizer.step()
   scheduler.step()
-  print(f"loss: {epoch_loss}")
+
+  # --- validetion ---
+  model.eval()
+  val_loss_total = 0
+  val_batches = 0
+  with torch.no_grad():
+    for x_val, y_val in val_loader:
+      x_val, y_val = x_val.to(device), y_val.to(device)
+      embeddings = embedding(x_val).to(device)
+      output = model.forward(embeddings.permute(1, 0, 2))
+      y_pred = ann_layer(output[-1])
+      v_loss = loss_fn(y_pred, y_val.squeeze())
+      val_loss_total += v_loss.item()
+      val_batches += 1
+  val_loss = val_loss_total / val_batches
+
+  train_losses.append(epoch_loss)
+  val_losses.append(val_loss)
+  print(f"epoch {epoch}: train_loss={epoch_loss:.6f}  val_loss={val_loss:.6f}")
 
 import pickle as pkl
 
